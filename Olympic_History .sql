@@ -1,89 +1,112 @@
 --1 which team has won the maximum gold medals over the years.
-select top 1  team,count(distinct event) as cnt from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id
-where medal='Gold'
-group by team
-order by cnt desc
 
---2 for each team print total silver medals and year in which they won maximum silver medal..output 3 columns
--- team,total_silver_medals, year_of_max_silver
-with cte as (
-select a.team,ae.year , count(distinct event) as silver_medals
-,rank() over(partition by team order by count(distinct event) desc) as rn
-from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id
-where medal='Silver'
-group by a.team,ae.year)
-select team,sum(silver_medals) as total_silver_medals, max(case when rn=1 then year end) as  year_of_max_silver
-from cte
-group by team;
+SELECT team, COUNT(DISTINCT event) AS count_event
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+WHERE medal = 'Gold'
+GROUP BY team
+ORDER BY cnt DESC
+LIMIT 1;
+
+--2 for each team print total silver medals and year in which they won maximum silver medal..
+--output 3 columns team,total_silver_medals, year_of_max_silver
+
+WITH cte AS (
+SELECT a.team, ae.year, COUNT(DISTINCT ae.event) AS silver_medals,
+RANK() OVER (PARTITION BY a.team ORDER BY COUNT(DISTINCT ae.event) DESC) AS rn
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+WHERE ae.medal = 'Silver'
+GROUP BY a.team, ae.year)
+SELECT team, SUM(silver_medals) AS total_silver_medals,
+MAX(CASE WHEN rn = 1 THEN year END) AS year_of_max_silver
+FROM cte
+GROUP BY team;
+
 
 --3 which player has won maximum gold medals  amongst the players 
---which have won only gold medal (never won silver or bronze) over the years
-with cte as (
-select name,medal
-from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id)
-select top 1 name , count(1) as no_of_gold_medals
-from cte 
-where name not in (select distinct name from cte where medal in ('Silver','Bronze'))
-and medal='Gold'
-group by name
-order by no_of_gold_medals desc
+--which have won only gold medal (never won silver or bronze) over the years.
+
+WITH cte AS (
+SELECT a.name, ae.medal
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+)
+SELECT name, COUNT(1) AS no_of_gold_medals
+FROM cte
+WHERE name NOT IN (
+SELECT DISTINCT name
+FROM cte
+WHERE medal IN ('Silver', 'Bronze')
+)
+AND medal = 'Gold'
+GROUP BY name
+ORDER BY no_of_gold_medals DESC
+LIMIT 1;
 
 --4 in each year which player has won maximum gold medal . Write a query to print year,player name 
 --and no of golds won in that year . In case of a tie print comma separated player names.
-with cte as (
-select ae.year,a.name,count(1) as no_of_gold
-from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id
-where medal='Gold'
-group by ae.year,a.name)
-select year,no_of_gold,STRING_AGG(name,',') as players from (
-select *,
-rank() over(partition by year order by no_of_gold desc) as rn
-from cte) a where rn=1
-group by year,no_of_gold
-;
+
+WITH cte AS (
+SELECT ae.year, a.name, COUNT(1) AS no_of_gold
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+WHERE medal = 'Gold'
+GROUP BY ae.year, a.name)
+SELECT year, no_of_gold, GROUP_CONCAT(name ORDER BY no_of_gold DESC SEPARATOR ',') AS players
+FROM (
+SELECT *,
+RANK() OVER (PARTITION BY `year` ORDER BY no_of_gold DESC) AS rn
+FROM cte) ranked
+WHERE rn = 1
+GROUP BY year, no_of_gold;
+
 --5 in which event and year India has won its first gold medal,first silver medal and first bronze medal
---print 3 columns medal,year,sport
-select distinct * from (
-select medal,year,event,rank() over(partition by medal order by year) rn
-from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id
-where team='India' and medal != 'NA'
-) A
-where rn=1
+--print 3 columns medal,year,sport.
+
+SELECT medal, year, event
+FROM (SELECT medal, year, event, 
+RANK() OVER (PARTITION BY medal ORDER BY year) AS rn
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+WHERE team = 'India' AND medal != 'NA'
+) AS A
+WHERE rn = 1;
 
 --6 find players who won gold medal in summer and winter olympics both.
-select a.name  
-from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id
-where medal='Gold'
-group by a.name having count(distinct season)=2
+
+SELECT a.name
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+WHERE ae.medal = 'Gold'
+GROUP BY a.name
+HAVING COUNT(DISTINCT ae.season) = 2;
 
 --7 find players who won gold, silver and bronze medal in a single olympics. print player name along with year.
-select year,name
-from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id
-where medal != 'NA'
-group by year,name having count(distinct medal)=3
+
+SELECT ae.year, a.name
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+WHERE medal != 'NA'
+GROUP BY year, name
+HAVING COUNT(DISTINCT medal) = 3;
 
 --8 find players who have won gold medals in consecutive 3 summer olympics in the same event . Consider only olympics 2000 onwards. 
 --Assume summer olympics happens every 4 year starting 2000. print player name and event name.
-with cte as (
-select name,year,event
-from athlete_events ae
-inner join athletes a on ae.athlete_id=a.id
-where year >=2000 and season='Summer'and medal = 'Gold'
-group by name,year,event)
-select * from
-(select *, lag(year,1) over(partition by name,event order by year ) as prev_year
-, lead(year,1) over(partition by name,event order by year ) as next_year
-from cte) A
-where year=prev_year+4 and year=next_year-4
 
-
-
-
+WITH cte AS (
+SELECT a.name, ae.year, ae.event
+FROM athlete_events ae
+INNER JOIN athletes a ON ae.athlete_id = a.id
+WHERE ae.year >= 2000 AND ae.season = 'Summer' AND ae.medal = 'Gold'),
+  
+consecutive_gold_winners AS (
+SELECT *,
+LAG(year, 1) OVER(PARTITION BY name, event ORDER BY year) AS prev_year,
+LEAD(year, 1) OVER(PARTITION BY name, event ORDER BY year) AS next_year
+FROM cte)
+ 
+SELECT name, event
+FROM consecutive_gold_winners
+WHERE year = prev_year + 4 AND year = next_year - 4;
 
